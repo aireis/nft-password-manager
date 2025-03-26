@@ -16,7 +16,6 @@ contract PasswordManager is ERC721 {
     struct PasswordEntry {
         string website;
         string encryptedData;
-        uint32 createdAt;
     }
 
     mapping(uint256 => PasswordEntry) private s_passwords;
@@ -57,8 +56,7 @@ contract PasswordManager is ERC721 {
         
         s_passwords[tokenId] = PasswordEntry({
             website: website,
-            encryptedData: encryptedData,
-            createdAt: uint32(block.timestamp)
+            encryptedData: encryptedData
         });
 
         s_ownedTokenIndexes[msg.sender][tokenId] = s_userTokens[msg.sender].length;
@@ -115,8 +113,7 @@ contract PasswordManager is ERC721 {
         bytes memory json = abi.encodePacked(
             '{"website":"', entry.website,
             '","encryptedData":"', entry.encryptedData,
-            '","createdAt":', uint256(entry.createdAt),
-            '}'
+            '"}'
         );
         return string(abi.encodePacked("data:application/json;base64,", Base64.encode(json)));
     }
