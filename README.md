@@ -2,6 +2,9 @@
 
 A decentralized password manager built on Ethereum using NFT (ERC721) technology, where each password entry is represented as a unique NFT.
 
+## Demo Video 🎥
+![Password Manager Demo](./assets/pmkitwalletdemo.gif)
+
 ## Features ✨
 
 - **NFT-Based Storage**: Each password entry is minted as an ERC721 token  
