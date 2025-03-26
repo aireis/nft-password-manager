@@ -32,44 +32,40 @@ contract PasswordManagerTest is Test {
 
         // Define test data
         testData = PasswordManager.PasswordEntry({
-            tokenId: 0, // Will be set dynamically
             website: "https://linkedin.com",
-            encryptedUsername: "me",
-            encryptedPassword: "secret!",
-            message: "test-message"
+            encryptedData: "encryptedDataHere",
+            createdAt: uint32(block.timestamp)
         });
     }
 
     /**
      * Helper Functions
      */
-    function _addPasswordAndGetTokenId(address user, PasswordManager.PasswordEntry memory entry) internal returns (uint256) {
+    function _addPasswordAndGetTokenId(address user, string memory website, string memory encryptedData) internal returns (uint256) {
         vm.recordLogs(); // Start recording logs to capture the emitted event
         vm.prank(user);
-        passwordManager.addPassword(entry.website, entry.encryptedUsername, entry.encryptedPassword, entry.message);
+        passwordManager.addPassword(website, encryptedData);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         return uint256(logs[1].topics[1]); // Return the emitted tokenId
     }
 
-    function _assertPasswordEntry(PasswordManager.PasswordEntry memory entry, PasswordManager.PasswordEntry memory expected) pure internal {
-        assertEq(entry.tokenId, expected.tokenId, "Token ID mismatch");
-        assertEq(entry.website, expected.website, "Website mismatch");
-        assertEq(entry.encryptedUsername, expected.encryptedUsername, "Encrypted username mismatch");
-        assertEq(entry.encryptedPassword, expected.encryptedPassword, "Encrypted password mismatch");
-        assertEq(entry.message, expected.message, "Message mismatch");
+    function _assertPasswordEntry(PasswordManager.PasswordEntry memory entry, string memory website, string memory encryptedData) view internal {
+        assertEq(entry.website, website, "Website mismatch");
+        assertEq(entry.encryptedData, encryptedData, "Encrypted data mismatch");
+        assertEq(entry.createdAt, uint32(block.timestamp), "Timestamp mismatch");
     }
 
-    function _assertTokenURI(uint256 tokenId, PasswordManager.PasswordEntry memory entry) internal {
+    function _assertTokenURI(uint256 tokenId, string memory website, string memory encryptedData) internal {
         // Encode metadata as JSON
         string memory json = Base64.encode(
             bytes(
                 string(
                     abi.encodePacked(
-                        '{"website": "', entry.website,
-                        '", "encryptedUsername": "', entry.encryptedUsername,
-                        '", "encryptedPassword": "', entry.encryptedPassword,
-                        '"}'
+                        '{"website":"', website,
+                        '","encryptedData":"', encryptedData,
+                        '","createdAt":', uint256(uint32(block.timestamp)),
+                        '}'
                     )
                 )
             )
@@ -109,10 +105,7 @@ contract PasswordManagerTest is Test {
     }
 
     function testAddOnePassword() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
-
-        // Update testData with the tokenId
-        testData.tokenId = tokenId;
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Fetch the user's password entries
         vm.prank(USER);
@@ -122,30 +115,24 @@ contract PasswordManagerTest is Test {
         assertEq(entries.length, 1, "User should have exactly one password entry");
 
         // Assert that the added password entry matches the input data
-        _assertPasswordEntry(entries[0], testData);
+        _assertPasswordEntry(entries[0], testData.website, testData.encryptedData);
 
         // Assert token URI
-        _assertTokenURI(tokenId, testData);
+        _assertTokenURI(tokenId, testData.website, testData.encryptedData);
     }
 
     function testUpdatePassword_EmptyInput() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
-        // Attempt to update with empty username
+        // Attempt to update with empty data
         vm.prank(USER);
         vm.expectRevert(PasswordManager.PasswordManager__EmptyInput.selector);
-        passwordManager.updatePassword(tokenId, "", "newPassword", "newMessage");
-
-        // Attempt to update with empty password
-        vm.prank(USER);
-        vm.expectRevert(PasswordManager.PasswordManager__EmptyInput.selector);
-        passwordManager.updatePassword(tokenId, "newUsername", "", "newMessage");
+        passwordManager.updatePassword(tokenId, "");
     }
 
     function testGetUserEmptyTokens() public {
-        address newrUser = makeAddr("newUser");
-        // Attempt to update with empty username
-        vm.prank(newrUser);
+        address newUser = makeAddr("newUser");
+        vm.prank(newUser);
         passwordManager.getUserTokens();
     }
 
@@ -155,26 +142,13 @@ contract PasswordManagerTest is Test {
         if (numEntries == 0) numEntries = 1; // Ensure at least one entry
         if (numEntries > maxEntries) numEntries = maxEntries;
 
-        PasswordManager.PasswordEntry[] memory expectedEntries = new PasswordManager.PasswordEntry[](numEntries);
-
         for (uint8 i = 0; i < numEntries; i++) {
             // Generate pseudo-random test data
             string memory website = string(abi.encodePacked("https://site", Strings.toString(i), ".com"));
-            string memory username = string(abi.encodePacked("user", Strings.toString(i)));
-            string memory password = string(abi.encodePacked("pass", Strings.toString(i)));
-            string memory message = "test-message";
+            string memory encryptedData = string(abi.encodePacked("encryptedData", Strings.toString(i)));
 
-            expectedEntries[i] = PasswordManager.PasswordEntry({
-                tokenId: 0, // Will be set dynamically
-                website: website,
-                encryptedUsername: username,
-                encryptedPassword: password,
-                message: message
-            });
-
-            // Add password and get tokenId
-            uint256 tokenId = _addPasswordAndGetTokenId(USER, expectedEntries[i]);
-            expectedEntries[i].tokenId = tokenId;
+            // Add password
+            _addPasswordAndGetTokenId(USER, website, encryptedData);
         }
 
         // Fetch stored passwords
@@ -183,43 +157,34 @@ contract PasswordManagerTest is Test {
 
         // Verify all entries are stored correctly
         assertEq(storedEntries.length, numEntries, "Number of stored passwords mismatch");
-
-        for (uint8 i = 0; i < numEntries; i++) {
-            _assertPasswordEntry(storedEntries[i], expectedEntries[i]);
-        }
     }
 
     function testOnlyOwnerCanUpdateAPassword() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
-        // Define the new password data
-        string memory newEncryptedUsername = "newUser";
-        string memory newEncryptedPassword = "newSecret!";
-        string memory message = "message";
+        // Define the new encrypted data
+        string memory newEncryptedData = "newEncryptedData";
 
         // Try to update the password as the owner (this should succeed)
         vm.prank(USER);
-        passwordManager.updatePassword(tokenId, newEncryptedUsername, newEncryptedPassword, message);
+        passwordManager.updatePassword(tokenId, newEncryptedData);
 
         // Fetch the updated password entry
         vm.prank(USER);
-        PasswordManager.PasswordEntry[] memory entries = passwordManager.getPasswords();
-        PasswordManager.PasswordEntry memory updatedEntry = entries[0];
+        PasswordManager.PasswordEntry memory updatedEntry = passwordManager.getPassword(tokenId);
 
         // Assert that the password entry has been updated correctly
-        assertEq(updatedEntry.encryptedUsername, newEncryptedUsername, "Username was not updated correctly");
-        assertEq(updatedEntry.encryptedPassword, newEncryptedPassword, "Password was not updated correctly");
-        assertEq(updatedEntry.message, message, "Message was not updated correctly");
+        assertEq(updatedEntry.encryptedData, newEncryptedData, "Data was not updated correctly");
 
         // Now try updating the password as a non-owner (should fail)
         address anotherUser = makeAddr("hacker");
         vm.prank(anotherUser);
         vm.expectRevert(PasswordManager.PasswordManager__NotTheOwner.selector);
-        passwordManager.updatePassword(tokenId, "hackedUser", "hackedPassword", "hackedMessage");
+        passwordManager.updatePassword(tokenId, "hackedData");
     }
 
     function testDeletePassword() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Simulate the user deleting the password
         vm.prank(USER);
@@ -253,7 +218,7 @@ contract PasswordManagerTest is Test {
         passwordManager.tokenURI(nonExistentTokenId);
     }
 
-    function testGetPasswordByTokenId_NonExistentToken() public {
+    function testGetPassword_NonExistentToken() public {
         uint256 nonExistentTokenId = 123; // Token not minted
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -261,7 +226,7 @@ contract PasswordManagerTest is Test {
                 nonExistentTokenId
             )
         );
-        passwordManager.getPasswordByTokenId(nonExistentTokenId);
+        passwordManager.getPassword(nonExistentTokenId);
     }
 
     function testDeletePassword_NonExistentToken() public {
@@ -283,7 +248,7 @@ contract PasswordManagerTest is Test {
                 nonExistentTokenId
             )
         );
-        passwordManager.updatePassword(nonExistentTokenId, "newUsername", "newPassword", "newMessage");
+        passwordManager.updatePassword(nonExistentTokenId, "newEncryptedData");
     }
 
     function testGetPasswords_NoTokens() public {
@@ -293,12 +258,10 @@ contract PasswordManagerTest is Test {
     }
 
     function testUpdatePassword_EventEmitted() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Define new data
-        string memory newUsername = "newUser";
-        string memory newPassword = "newPassword";
-        string memory newMessage = "newMessage";
+        string memory newEncryptedData = "newEncryptedData";
 
         // Expect the PasswordUpdated event
         vm.expectEmit(true, true, true, true);
@@ -306,11 +269,11 @@ contract PasswordManagerTest is Test {
 
         // Update the password
         vm.prank(USER);
-        passwordManager.updatePassword(tokenId, newUsername, newPassword, newMessage);
+        passwordManager.updatePassword(tokenId, newEncryptedData);
     }
 
     function testDeletePassword_EventEmitted() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Expect the PasswordDeleted event
         vm.expectEmit(true, true, true, true);
@@ -322,15 +285,15 @@ contract PasswordManagerTest is Test {
     }
 
     function testOnlyOwnerOf_AllowsOwner() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Simulate the owner calling a function with the modifier
         vm.prank(USER);
-        passwordManager.getPasswordByTokenId(tokenId);
+        passwordManager.getPassword(tokenId);
     }
 
     function testOnlyOwnerOf_RevertsIfNotOwner() public {
-        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData);
+        uint256 tokenId = _addPasswordAndGetTokenId(USER, testData.website, testData.encryptedData);
 
         // Simulate a different user calling a function with the modifier
         address anotherUser = makeAddr("hacker");
@@ -338,6 +301,6 @@ contract PasswordManagerTest is Test {
 
         // Expect revert with PasswordManager__NotTheOwner
         vm.expectRevert(PasswordManager.PasswordManager__NotTheOwner.selector);
-        passwordManager.getPasswordByTokenId(tokenId);
+        passwordManager.getPassword(tokenId);
     }
 }
